@@ -4,32 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SalineGuard Pro | Enterprise</title>
-    
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-    
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; -webkit-tap-highlight-color: transparent; }
-        
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #f1f5f9; 
+            background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+            background-size: 20px 20px;
+            -webkit-tap-highlight-color: transparent; 
+        }
+
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
+        
         .saline-loader { position: relative; width: 60px; height: 100px; margin: 0 auto; }
         .bottle {
             width: 40px; height: 60px; border: 3px solid #3b82f6; border-radius: 0 0 20px 20px;
             margin: 0 auto; position: relative; overflow: hidden; background: rgba(255,255,255,0.8);
-            box-shadow: 0 4px 6px rgba(59, 130, 246, 0.1);
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2);
         }
         .bottle::before {
             content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -41,28 +43,29 @@
         }
         @keyframes drain { 0% { top: 0; } 100% { top: 100%; } }
         @keyframes drop { 0% { transform: translateY(0) scaleY(1); opacity: 1; } 100% { transform: translateY(40px) scaleY(0); opacity: 0; } }
-
-        .fade-in { animation: fadeIn 0.3s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
+        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
         .critical-alert { animation: pulse-border 2s infinite; }
         @keyframes pulse-border {
             0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); border-color: #ef4444; }
-            70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); border-color: #ef4444; }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); border-color: #ef4444; }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); border-color: #ef4444; }
         }
-
-        .glow-card { box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+        .glow-card { transition: all 0.3s ease; }
+        .glow-card:hover { box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.15), 0 8px 10px -6px rgba(59, 130, 246, 0.1); transform: translateY(-2px); }
+        .glass-panel { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.5); }
     </style>
 </head>
 <body>
-
 <div id="root"></div>
 
 <script type="text/babel">
     // --- Config ---
-    const COST_PER_PATIENT = 5; 
-
+    const MAINTENANCE_FEE_PER_DEVICE = 200; 
+    
+    // REPLACE WITH YOUR FIREBASE CONFIG
     const firebaseConfig = {
         apiKey: "AIzaSyCYkB2xXeZDT7OA8UyCwDt0ipc3oLXDzkw",
         authDomain: "salinemonitor-7534e.firebaseapp.com",
@@ -76,42 +79,55 @@
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
     const db = firebase.database();
-
     const { useState, useEffect, useMemo } = React;
 
     // --- Helpers ---
     const formatMoney = (amt) => "₹" + (amt || 0).toLocaleString('en-IN');
     
     const getHospitalInfo = (email) => {
-        if(!email) return { id: 'unknown', name: 'Unknown', loc: '' };
-        if(email === 'admin@gmail.com') return { id: 'super_admin', name: 'Super Admin', loc: 'Global' };
-        const parts = email.split('@')[1].split('.'); 
-        if(parts.length < 2) return { id: 'unknown', name: 'Unknown', loc: '' };
-        const name = parts[0];
-        const loc = parts[1];
-        return { 
-            id: `${name}_${loc}`, 
-            name: name.charAt(0).toUpperCase() + name.slice(1) + " Hospital",
-            loc: loc.charAt(0).toUpperCase() + loc.slice(1)
-        };
+        if(!email) return { id: 'unknown', name: 'Unknown', loc: '', domain: '' };
+        if(email === 'admin@gmail.com') return { id: 'super_admin', name: 'Super Admin', loc: 'Global', domain: '' };
+
+        const parts = email.split('@');
+        if(parts.length < 2) return { id: 'unknown', name: 'Unknown', loc: '', domain: '' };
+
+        const domainFull = parts[1];
+        const domainParts = domainFull.split('.');
+        if(domainParts.length >= 2) { 
+            const hName = domainParts[0];
+            const hLoc = domainParts[1];
+            return {
+                id: `${hName}_${hLoc}`.toLowerCase(),
+                name: hName.charAt(0).toUpperCase() + hName.slice(1) + " Hospital",
+                loc: hLoc.charAt(0).toUpperCase() + hLoc.slice(1),
+                domain: `${hName}.${hLoc}`
+            };
+        }
+        return { id: 'unknown', name: 'Unknown', loc: '', domain: '' };
+    };
+
+    const filterHistoryByTime = (histList, period) => {
+        if (period === 'max') return histList;
+        const now = Date.now();
+        const periods = { day: 86400000, week: 7 * 86400000, month: 30 * 86400000 };
+        return histList.filter(h => (now - (h.completedAt || h.startTime)) <= periods[period]);
     };
 
     // --- Components ---
-
     const LoadingScreen = () => (
         <div className="fixed inset-0 bg-slate-50 z-[9999] flex flex-col items-center justify-center">
             <div className="saline-loader">
                 <div className="bottle"></div>
                 <div className="drip"></div>
             </div>
-            <h2 className="text-xl font-bold text-slate-800 tracking-widest mt-6">SALINE GUARD</h2>
-            <p className="text-xs text-slate-400 mt-2 font-mono">Loading System...</p>
+            <h2 className="text-xl font-extrabold text-slate-800 tracking-widest mt-6">SALINE GUARD</h2>
+            <p className="text-xs text-blue-500 mt-2 font-mono font-medium">Initializing System...</p>
         </div>
     );
 
     const Toast = ({ msg, type, onClose }) => (
-        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 fade-in ${type === 'error' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'}`}>
-            <i className={`fas ${type === 'error' ? 'fa-exclamation-triangle' : 'fa-check-circle'}`}></i>
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 fade-in ${type === 'error' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white border border-slate-700'}`}>
+            <i className={`fas ${type === 'error' ? 'fa-exclamation-triangle' : 'fa-check-circle'} text-emerald-400`}></i>
             <span className="font-bold text-sm whitespace-nowrap">{msg}</span>
         </div>
     );
@@ -124,87 +140,102 @@
                 <div className="font-mono font-bold text-lg leading-none text-white">
                     {t.toLocaleTimeString('en-IN', { hour12: true, hour:'2-digit', minute:'2-digit', second:'2-digit' }).toUpperCase()}
                 </div>
-                <div className="text-[10px] uppercase font-bold text-slate-400 mt-1">
+                <div className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider">
                     {t.toLocaleDateString('en-IN', { weekday: 'long', day:'numeric', month:'short' }).toUpperCase()}
                 </div>
             </div>
         );
     };
 
-    const AppHeader = ({ title, subtitle, onLogout, showWallet = null }) => (
-        <header className="bg-slate-900 px-4 py-3 md:px-6 md:py-4 flex justify-between items-center shadow-sm sticky top-0 z-40 border-b border-slate-800">
-            <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/50">
-                    <i className="fas fa-heartbeat text-lg"></i>
+    const AppHeader = ({ title, subtitle, onLogout }) => (
+        <header className="bg-slate-900 px-4 py-3 md:px-6 md:py-4 flex justify-between items-center shadow-lg sticky top-0 z-40 border-b border-slate-800 backdrop-blur-md bg-slate-900/90">
+            <div className="flex items-center gap-4">
+                <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/40">
+                    <i className="fas fa-heartbeat text-xl"></i>
                 </div>
                 <div>
-                    <h2 className="font-bold text-white text-sm md:text-lg leading-tight">{title}</h2>
-                    <p className="text-[10px] md:text-xs text-slate-300 font-bold uppercase tracking-wide">{subtitle}</p>
+                    <h2 className="font-extrabold text-white text-sm md:text-lg leading-tight">{title}</h2>
+                    <p className="text-[10px] md:text-xs text-blue-400 font-bold uppercase tracking-widest mt-0.5">{subtitle}</p>
                 </div>
             </div>
             <div className="flex items-center gap-4 md:gap-6">
-                {showWallet !== null && (
-                    <div className="hidden md:block text-right">
-                        <div className="text-[9px] uppercase font-bold text-slate-500">Funds</div>
-                        <div className="font-bold text-emerald-400">{formatMoney(showWallet)}</div>
-                    </div>
-                )}
-                <div className="hidden md:block w-px h-8 bg-slate-800"></div>
                 <Clock />
-                <button onClick={onLogout} className="w-8 h-8 rounded-full bg-slate-800 text-slate-500 hover:bg-red-900 hover:text-red-300 transition-colors flex items-center justify-center">
-                    <i className="fas fa-power-off text-sm"></i>
+                <div className="hidden md:block w-px h-8 bg-slate-700/50"></div>
+                <button onClick={onLogout} className="w-10 h-10 rounded-full bg-slate-800 text-slate-400 hover:bg-red-500 hover:text-white hover:shadow-lg hover:shadow-red-500/30 transition-all flex items-center justify-center">
+                    <i className="fas fa-power-off"></i>
                 </button>
             </div>
         </header>
     );
 
+    const FilterTabs = ({ current, onChange, resultCount }) => (
+        <div className="flex flex-col md:flex-row md:items-center gap-4 mb-5">
+            <div className="flex gap-2">
+                {['day', 'week', 'month', 'max'].map(p => (
+                    <button key={p} onClick={() => onChange(p)} className={`px-4 py-1.5 text-xs font-bold rounded-lg uppercase tracking-wider transition-colors border ${current === p ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>
+                        {p}
+                    </button>
+                ))}
+            </div>
+            {resultCount !== undefined && (
+                <div className="text-xs font-bold text-slate-400">
+                    <i className="fas fa-poll-h mr-1"></i> Showing {resultCount} records
+                </div>
+            )}
+        </div>
+    );
+
     const StatusCard = ({ data, onComplete, isHistory = false }) => {
         const perc = data.perc || 0;
         const isCrit = perc <= 10 && !isHistory;
-        
+        const displayName = data.patientName || `Room ${data.room} - Bed ${data.bed}`;
+
         return (
-            <div className={`relative bg-white rounded-2xl p-5 border transition-all duration-300 shadow-sm flex flex-col justify-between ${isCrit ? 'border-red-500 critical-alert' : 'border-slate-100'}`}>
+            <div className={`relative bg-white rounded-2xl p-5 border transition-all duration-300 shadow-sm flex flex-col justify-between ${isCrit ? 'border-red-400 critical-alert' : 'border-slate-200 hover:shadow-md'}`}>
                 <div>
                     <div className="flex justify-between items-start mb-4">
-                        <div>
-                            <h3 className="font-bold text-slate-800 text-lg truncate w-32 md:w-40" title={data.patientName}>{data.patientName}</h3>
-                            <div className="flex items-center gap-2 mt-1 text-xs font-bold text-slate-500">
-                                <span className="bg-slate-50 px-2 py-1 rounded border border-slate-100"><i className="fas fa-procedures mr-1 text-blue-400"></i> {data.room}</span>
-                                <span className="bg-slate-50 px-2 py-1 rounded border border-slate-100"><i className="fas fa-bed mr-1 text-blue-400"></i> {data.bed}</span>
+                        <div className="pr-2">
+                            <h3 className="font-bold text-slate-800 text-lg truncate w-32 md:w-40" title={displayName}>{displayName}</h3>
+                            <div className="flex items-center gap-2 mt-2 text-xs font-bold text-slate-600">
+                                <span className="bg-blue-50/50 px-2.5 py-1 rounded-lg border border-blue-100"><i className="fas fa-door-open mr-1 text-blue-500"></i> R: {data.room}</span>
+                                <span className="bg-indigo-50/50 px-2.5 py-1 rounded-lg border border-indigo-100"><i className="fas fa-bed mr-1 text-indigo-500"></i> B: {data.bed}</span>
                             </div>
                         </div>
-                        <div className="bg-slate-900 text-white rounded-lg px-3 py-1.5 text-center shadow-lg shadow-slate-200">
-                            <div className="text-[8px] uppercase font-bold opacity-60">Device</div>
-                            <div className="font-mono font-bold text-sm leading-none mt-0.5">{data.deviceId}</div>
+                        <div className="bg-slate-50 border border-slate-200 text-slate-800 rounded-xl px-3 py-2 text-center shadow-sm">
+                            <div className="text-[9px] uppercase font-bold text-slate-400 mb-0.5 tracking-wider">Device ID</div>
+                            <div className="font-mono font-bold text-sm leading-none text-slate-700">{data.deviceId}</div>
                         </div>
                     </div>
-
                     <div className="mb-4">
-                        <div className="flex justify-between text-xs font-bold mb-1.5">
+                        <div className="flex justify-between text-xs font-bold mb-2">
                             <span className={perc <= 10 && !isHistory ? 'text-red-600 animate-pulse' : 'text-blue-600'}>{perc}% Infused</span>
                             <span className="text-slate-400 font-mono">{isHistory ? 'Done' : `${data.minsLeft || 0}m left`}</span>
                         </div>
-                        <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-1000 ${isHistory ? 'bg-emerald-500' : (perc<=10 ? 'bg-red-500' : 'bg-blue-600')}`} style={{width: `${perc}%`}}></div>
+                        <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
+                            <div className={`h-full rounded-full transition-all duration-1000 ${isHistory ? 'bg-emerald-500' : (perc<=10 ? 'bg-red-500' : 'bg-gradient-to-r from-blue-500 to-indigo-500')}`} style={{width: `${perc}%`}}></div>
                         </div>
                     </div>
                 </div>
-
-                <div className="flex justify-between items-center pt-3 border-t border-slate-50 mt-auto">
-                    <div className="text-[10px] text-slate-400 font-medium">
-                        <div className="mb-1 text-slate-600 font-bold"><i className="fas fa-user-nurse mr-1 opacity-50"></i> {data.nurseName || 'Staff'}</div>
-                        {isHistory ? 
-                            <span className="text-emerald-600"><i className="fas fa-check-circle mr-1"></i> {new Date(data.completedAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span> : 
-                            <span>Started: {new Date(data.startTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                <div className="flex justify-between items-center pt-4 border-t border-slate-100 mt-auto">
+                    <div className="text-[10px] text-slate-500 font-medium">
+                        <div className="mb-1 text-slate-700 font-bold flex items-center">
+                            <i className="fas fa-user-nurse mr-1.5 text-slate-400"></i>
+                            <span>{data.nurseName || 'Unknown Staff'}</span>
+                        </div>
+                        {isHistory ?
+                            <span className={`px-2 py-0.5 rounded-md ${data.autoDischarged ? 'text-amber-600 bg-amber-50' : 'text-emerald-600 bg-emerald-50'}`}>
+                                <i className={`fas ${data.autoDischarged ? 'fa-clock' : 'fa-check-circle'} mr-1`}></i> 
+                                {data.autoDischarged ? 'Auto Discharged' : new Date(data.completedAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                            </span> :
+                            <span className="text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md">Started: {new Date(data.startTime).toLocaleString('en-IN', { timeStyle: 'short' })}</span>
                         }
                     </div>
-                    
                     {!isHistory && (
-                        <button 
+                        <button
                             onClick={() => onComplete?.(data.deviceId)}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md shadow-emerald-100 active:scale-95 transition-all flex items-center gap-2"
+                            className="bg-slate-900 hover:bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md active:scale-95 transition-all flex items-center gap-2 group"
                         >
-                            <span>Mark Done</span> <i className="fas fa-check"></i>
+                            <span>Discharge</span> <i className="fas fa-check text-slate-400 group-hover:text-white transition-colors"></i>
                         </button>
                     )}
                 </div>
@@ -212,101 +243,66 @@
         );
     };
 
-    const PatientFormModal = ({ isOpen, onClose, hospitalId, user, currentBalance, onSuccess }) => {
+    const PatientFormModal = ({ isOpen, onClose, hospitalId, user, onSuccess }) => {
         const [form, setForm] = useState({ id: '', name: '', room: '', bed: '' });
         const [loading, setLoading] = useState(false);
 
         const handleSubmit = async () => {
-            if(!form.id || !form.name) return;
+            if(!form.id || !form.room || !form.bed) {
+                alert("Device ID, Room Number, and Bed Number are mandatory."); return;
+            }
+            
             setLoading(true);
             const did = form.id.toUpperCase();
-            
+
             try {
                 const hRef = db.ref(`hospitals/${hospitalId}`);
-                
                 const devSnap = await hRef.child(`active_devices/${did}`).once('value');
+                
                 if (devSnap.exists()) {
-                    alert(`Device ${did} is currently active! Use a unique Device ID.`);
-                    setLoading(false);
-                    return;
-                }
-
-                const res = await hRef.child('wallet').transaction((bal) => {
-                    if (bal === null) return 0;
-                    if (bal < COST_PER_PATIENT) return; 
-                    return bal - COST_PER_PATIENT;
-                });
-
-                if (!res.committed) {
-                    alert(`Insufficient Funds. Contact Admin.`);
-                    setLoading(false);
-                    return;
+                    alert(`Device ${did} is currently active! Ensure it is discharged first.`);
+                    setLoading(false); return;
                 }
 
                 await hRef.child(`active_devices/${did}`).set({
-                    deviceId: did,
-                    patientName: form.name,
-                    room: form.room,
-                    bed: form.bed,
-                    nurseId: user.uid,
-                    nurseName: user.name || 'Admin',
-                    startTime: Date.now(),
-                    perc: 100,
-                    minsLeft: 60
-                });
-
-                hRef.child('transactions').push({
-                    type: 'deduction',
-                    amount: COST_PER_PATIENT,
-                    timestamp: Date.now(),
-                    by: `Nurse ${user.name} (${did})`
+                    deviceId: did, patientName: form.name.trim() || '', room: form.room, bed: form.bed,
+                    nurseId: user.uid, nurseName: user.name || 'Staff', startTime: Date.now(), perc: 100, minsLeft: 60
                 });
 
                 setForm({ id: '', name: '', room: '', bed: '' });
-                onSuccess();
-                onClose();
-
-            } catch (e) {
-                alert(e.message);
-            }
+                onSuccess(); onClose();
+            } catch (e) { alert(e.message); }
             setLoading(false);
         };
 
         if(!isOpen) return null;
-
         return (
-            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-                <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl relative overflow-hidden border border-slate-100">
                     <div className="flex justify-between items-center mb-6">
-                        <h3 className="font-bold text-slate-800 text-lg">Connect Patient</h3>
-                        <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:bg-slate-100 flex items-center justify-center"><i className="fas fa-times"></i></button>
+                        <div><h3 className="font-extrabold text-slate-800 text-xl">New Infusion</h3><p className="text-xs font-medium text-slate-400 mt-1">Connect device to patient bed</p></div>
+                        <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors flex items-center justify-center"><i className="fas fa-times"></i></button>
                     </div>
-
-                    {user.role === 'admin' && (
-                        <div className="bg-blue-50 p-4 rounded-2xl mb-5 flex justify-between items-center">
-                            <div>
-                                <div className="text-[10px] uppercase font-bold text-blue-400">Session Cost</div>
-                                <div className="text-xl font-bold text-blue-600">{formatMoney(COST_PER_PATIENT)}</div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-[10px] uppercase font-bold text-slate-400">Funds</div>
-                                <div className="text-sm font-bold text-slate-600">{formatMoney(currentBalance)}</div>
-                            </div>
-                        </div>
-                    )}
-
                     <div className="space-y-4">
                         <div className="relative">
-                            <input value={form.id} onChange={e=>setForm({...form, id:e.target.value})} placeholder="S2602001" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none font-mono text-center text-lg font-bold tracking-widest uppercase transition-all" autoFocus />
-                            <div className="text-[10px] text-center text-slate-400 mt-1">Device ID</div>
+                            <input value={form.id} onChange={e=>setForm({...form, id:e.target.value})} placeholder="e.g. SC2601" className="w-full p-4 bg-slate-50 border-2 border-slate-100 focus:border-blue-500 rounded-xl outline-none font-mono text-center text-xl font-bold tracking-widest uppercase transition-all" autoFocus />
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-center text-slate-400 mt-2">Device ID <span className="text-red-500">*</span></div>
                         </div>
-                        <input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Patient Name" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
-                        <div className="grid grid-cols-2 gap-4">
-                            <input value={form.room} onChange={e=>setForm({...form, room:e.target.value})} placeholder="Room No" className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
-                            <input value={form.bed} onChange={e=>setForm({...form, bed:e.target.value})} placeholder="Bed No" className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <input value={form.room} onChange={e=>setForm({...form, room:e.target.value})} placeholder="Room 101" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-bold text-slate-700" />
+                                <div className="text-[10px] text-slate-400 font-bold uppercase mt-1 ml-1">Room No <span className="text-red-500">*</span></div>
+                            </div>
+                            <div>
+                                <input value={form.bed} onChange={e=>setForm({...form, bed:e.target.value})} placeholder="Bed A" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-bold text-slate-700" />
+                                <div className="text-[10px] text-slate-400 font-bold uppercase mt-1 ml-1">Bed No <span className="text-red-500">*</span></div>
+                            </div>
                         </div>
-                        <button onClick={handleSubmit} disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg shadow-slate-300 active:scale-95 transition-all flex justify-center items-center gap-2">
-                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : <span>Start Infusion</span>}
+                        <div className="pt-2">
+                            <input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Patient Name (Optional)" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium text-slate-700 placeholder-slate-400" />
+                        </div>
+                        <button onClick={handleSubmit} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white mt-2 py-4 rounded-xl font-bold shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : <span>Start Monitoring</span>}
                         </button>
                     </div>
                 </div>
@@ -314,267 +310,429 @@
         );
     };
 
+    const EditNurseModal = ({ isOpen, onClose, hospitalId, currentNurse, onSuccess }) => {
+        const [form, setForm] = useState({ name: '', phone: '' });
+        const [loading, setLoading] = useState(false);
+
+        useEffect(() => {
+            if (currentNurse) setForm({ name: currentNurse.name, phone: currentNurse.phone });
+        }, [currentNurse]);
+
+        const handleSubmit = async () => {
+            if(!form.name || !form.phone) return alert("Fields cannot be empty.");
+            setLoading(true);
+            try {
+                await db.ref(`hospitals/${hospitalId}/nurses/${currentNurse.uid}`).update({
+                    name: form.name,
+                    phone: form.phone
+                });
+                onSuccess();
+                onClose();
+            } catch (e) { alert(e.message); }
+            setLoading(false);
+        };
+
+        if(!isOpen || !currentNurse) return null;
+        return (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl relative overflow-hidden border border-slate-100">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="font-extrabold text-slate-800 text-lg">Edit Staff Details</h3>
+                        <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:bg-slate-200 flex items-center justify-center"><i className="fas fa-times"></i></button>
+                    </div>
+                    <div className="space-y-4">
+                        <input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Full Name" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
+                        <input value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} placeholder="Contact Number" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
+                        <div className="text-[11px] font-mono text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-100">ID: {currentNurse.email}</div>
+                        <button onClick={handleSubmit} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">
+                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : <span>Save Changes</span>}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const AddNurseModal = ({ isOpen, onClose, hospitalId, hospitalDomain, onSuccess }) => {
+        const [form, setForm] = useState({ name: '', phone: '', password: '' });
+        const [loading, setLoading] = useState(false);
+        const [generatedEmail, setGeneratedEmail] = useState('');
+        const [showSuccess, setShowSuccess] = useState(false);
+        const [creds, setCreds] = useState(null);
+
+        useEffect(() => {
+            if (form.name) {
+                const nurseUsername = form.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                setGeneratedEmail(`${nurseUsername}@${hospitalDomain}`);
+            } else setGeneratedEmail('');
+        }, [form.name, hospitalDomain]);
+
+        const handleSubmit = async () => {
+            if (!form.name || !form.phone || !form.password || form.password.length < 6) {
+                alert('Please fill all fields. Password must be at least 6 characters.'); return;
+            }
+            setLoading(true);
+            try {
+                const userCredential = await auth.createUserWithEmailAndPassword(generatedEmail, form.password);
+                const uid = userCredential.user.uid;
+                await db.ref(`hospitals/${hospitalId}/nurses/${uid}`).set({
+                    name: form.name, email: generatedEmail, phone: form.phone, uid: uid, joined: Date.now()
+                });
+                setCreds({ email: generatedEmail, password: form.password });
+                setShowSuccess(true);
+                setForm({ name: '', phone: '', password: '' });
+                onSuccess();
+            } catch (e) { alert(e.message); }
+            setLoading(false);
+        };
+
+        if (!isOpen) return null;
+        return (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
+                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl relative overflow-hidden border border-slate-100">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="font-extrabold text-slate-800 text-lg">Register Staff</h3>
+                        <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:bg-slate-200 flex items-center justify-center"><i className="fas fa-times"></i></button>
+                    </div>
+                    <div className="space-y-4">
+                        <input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Full Name" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
+                        <input value={form.phone} onChange={e=>setForm({...form, phone:e.target.value})} placeholder="Contact Number" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
+                        <input type="password" value={form.password} onChange={e=>setForm({...form, password:e.target.value})} placeholder="Assign Password (Min 6)" className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-sm font-medium" />
+                        <div className="text-[11px] font-mono text-blue-600 bg-blue-50 p-3 rounded-lg break-all border border-blue-100">ID: {generatedEmail || 'Enter name to generate'}</div>
+                        <button onClick={handleSubmit} disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg shadow-slate-300 active:scale-95 transition-all">
+                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : <span>Create Account</span>}
+                        </button>
+                    </div>
+                </div>
+                <SuccessCredentialsModal isOpen={showSuccess} creds={creds} onClose={() => setShowSuccess(false)} />
+            </div>
+        );
+    };
+
+    const SuccessCredentialsModal = ({ isOpen, creds, onClose }) => {
+        if (!isOpen || !creds) return null;
+        return (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 fade-in">
+                <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl relative overflow-hidden border border-slate-100">
+                    <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-8 text-center">
+                        <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4"><i className="fas fa-check text-3xl"></i></div>
+                        <h3 className="text-2xl font-extrabold tracking-tight">Account Created!</h3>
+                    </div>
+                    <div className="p-7 space-y-4">
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                            <p className="text-[10px] font-bold tracking-widest text-slate-400 mb-1 uppercase">Email Address</p>
+                            <p className="font-mono font-bold text-slate-800">{creds.email}</p>
+                        </div>
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                            <p className="text-[10px] font-bold tracking-widest text-slate-400 mb-1 uppercase">Initial Password</p>
+                            <p className="font-mono font-bold text-slate-800 tracking-wider">{creds.password}</p>
+                        </div>
+                        <button onClick={() => { navigator.clipboard.writeText(`Email: ${creds.email}\nPassword: ${creds.password}`); alert("Copied!"); }} className="w-full bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-xl font-bold transition-colors">Copy Credentials</button>
+                        <button onClick={onClose} className="w-full text-slate-500 hover:text-slate-800 py-2 font-bold transition-colors">Done</button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // --- Analytics Chart Component (Super Admin) ---
+    const UsageChart = ({ historyData }) => {
+        const [range, setRange] = useState('monthly'); // weekly, monthly, yearly, max
+
+        const chartData = useMemo(() => {
+            const dataMap = {};
+            const labels = [];
+            const now = new Date();
+
+            if (range === 'weekly') {
+                for(let i=6; i>=0; i--) {
+                    const d = new Date(now); d.setDate(d.getDate() - i);
+                    const label = d.toLocaleDateString('en-US', {weekday: 'short'});
+                    const key = d.toDateString();
+                    dataMap[key] = { label, count: 0 };
+                    labels.push(key);
+                }
+                historyData.forEach(h => {
+                    const d = new Date(h.completedAt || h.startTime).toDateString();
+                    if(dataMap[d]) dataMap[d].count++;
+                });
+            } else if (range === 'monthly') {
+                for(let i=5; i>=0; i--) {
+                    const d = new Date(now); d.setMonth(d.getMonth() - i);
+                    const label = d.toLocaleString('default', { month: 'short' });
+                    const key = `${d.getFullYear()}-${d.getMonth()}`;
+                    dataMap[key] = { label, count: 0 };
+                    labels.push(key);
+                }
+                historyData.forEach(h => {
+                    const d = new Date(h.completedAt || h.startTime);
+                    const key = `${d.getFullYear()}-${d.getMonth()}`;
+                    if(dataMap[key]) dataMap[key].count++;
+                });
+            } else if (range === 'yearly') {
+                for(let i=4; i>=0; i--) {
+                    const y = now.getFullYear() - i;
+                    dataMap[y] = { label: y.toString(), count: 0 };
+                    labels.push(y);
+                }
+                historyData.forEach(h => {
+                    const y = new Date(h.completedAt || h.startTime).getFullYear();
+                    if(dataMap[y]) dataMap[y].count++;
+                });
+            } else {
+                const years = new Set(historyData.map(h => new Date(h.completedAt || h.startTime).getFullYear()));
+                const minYear = years.size ? Math.min(...years) : now.getFullYear();
+                for(let y = minYear; y <= now.getFullYear(); y++) {
+                    dataMap[y] = { label: y.toString(), count: 0 };
+                    labels.push(y);
+                }
+                historyData.forEach(h => {
+                    const y = new Date(h.completedAt || h.startTime).getFullYear();
+                    if(dataMap[y]) dataMap[y].count++;
+                });
+            }
+
+            return labels.map(k => dataMap[k]);
+        }, [historyData, range]);
+
+        const maxCount = Math.max(...chartData.map(d => d.count), 5); 
+
+        return (
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6 fade-in">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                        <i className="fas fa-chart-line text-blue-500"></i> Infusion Volume
+                    </h3>
+                    <div className="flex bg-slate-100 rounded-lg p-1">
+                        {['weekly', 'monthly', 'yearly', 'max'].map(r => (
+                            <button key={r} onClick={()=>setRange(r)} className={`px-3 py-1.5 text-[10px] font-bold uppercase rounded-md transition-colors ${range === r ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{r}</button>
+                        ))}
+                    </div>
+                </div>
+                
+                <div className="flex items-end justify-between h-40 gap-2 md:gap-4 mt-4">
+                    {chartData.map((d, i) => {
+                        const heightPerc = Math.max((d.count / maxCount) * 100, 2); 
+                        return (
+                            <div key={i} className="flex-1 flex flex-col items-center group relative">
+                                <div className="absolute -top-10 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                                    {d.count} Patients
+                                </div>
+                                <div className="w-full bg-blue-100 rounded-t-md flex items-end justify-center relative overflow-hidden transition-all duration-500 ease-out" style={{height: '100%'}}>
+                                    <div className="w-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-md transition-all duration-1000" style={{height: `${heightPerc}%`}}></div>
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-widest">{d.label}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
+
     // ────────────────────────────────────────────────
-    //  HOSPITAL ADMIN DASHBOARD
+    // HOSPITAL ADMIN DASHBOARD
     // ────────────────────────────────────────────────
     const HospitalDashboard = ({ hospitalId, userRole, isSuperView = false }) => {
         const [data, setData] = useState(null);
-        const [tab, setTab] = useState('active'); 
-        const [showAdd, setShowAdd] = useState(false);
+        const [tab, setTab] = useState('active');
+        const [showAddNurse, setShowAddNurse] = useState(false);
+        const [showEditNurse, setShowEditNurse] = useState(false);
+        const [selectedNurse, setSelectedNurse] = useState(null);
         const [toast, setToast] = useState(null);
-        const [addFunds, setAddFunds] = useState('');
         const [searchTerm, setSearchTerm] = useState('');
-        const [modalType, setModalType] = useState(null); 
-        const [selectedNurseId, setSelectedNurseId] = useState(null);
-
+        const [filterPeriod, setFilterPeriod] = useState('max');
+        const hospitalInfo = getHospitalInfo(auth.currentUser.email);
+        
         useEffect(() => {
             const ref = db.ref(`hospitals/${hospitalId}`);
             ref.on('value', snap => {
-                if (!snap.exists() && userRole === 'admin') {
-                     const info = getHospitalInfo(auth.currentUser.email);
-                     ref.set({ name: info.name, location: info.loc, wallet: 0 });
+                const val = snap.val() || {};
+                
+                // --- 24-HOUR AUTO DISCHARGE LOGIC ---
+                if (val && val.active_devices) {
+                    const now = Date.now();
+                    const oneDay = 24 * 60 * 60 * 1000;
+                    Object.values(val.active_devices).forEach(dev => {
+                        if (now - dev.startTime >= oneDay) {
+                            db.ref(`hospitals/${hospitalId}/history`).push({
+                                ...dev,
+                                completedAt: now,
+                                autoDischarged: true
+                            });
+                            db.ref(`hospitals/${hospitalId}/active_devices/${dev.deviceId}`).remove();
+                        }
+                    });
                 }
-                setData(snap.val());
+                
+                if (!snap.exists() && userRole === 'admin') {
+                     ref.set({ name: hospitalInfo.name, location: hospitalInfo.loc });
+                }
+                setData(val);
             });
             return () => ref.off();
-        }, [hospitalId]);
+        }, [hospitalId, hospitalInfo.name, hospitalInfo.loc, userRole]);
 
         const handleDischarge = (did) => {
-            if(!confirm("Discharge patient?")) return;
+            if(!confirm("Discharge patient and end monitoring?")) return;
             const dev = data.active_devices[did];
-            db.ref(`hospitals/${hospitalId}/active_devices/${did}`).remove();
-            db.ref(`hospitals/${hospitalId}/history`).push({ 
-                ...dev, 
-                completedAt: Date.now(),
-                nurseId: dev.nurseId,     
-                nurseName: dev.nurseName  
+            db.ref(`hospitals/${hospitalId}/history`).push({ ...dev, completedAt: Date.now() }, (error) => {
+                if(!error) db.ref(`hospitals/${hospitalId}/active_devices/${did}`).remove();
             });
         };
 
-        const handleAddFunds = async () => {
-            const amt = parseInt(addFunds);
-            if(!amt) return;
-            await db.ref(`hospitals/${hospitalId}/wallet`).transaction(curr => (curr||0) + amt);
-            db.ref(`hospitals/${hospitalId}/transactions`).push({ type: 'deposit', amount: amt, timestamp: Date.now(), by: 'Admin' });
-            setAddFunds('');
-            setToast({type: 'success', msg: 'Funds Added'});
-            setTimeout(()=>setToast(null), 2000);
+        const handleDeleteNurse = async (uid) => {
+            if(!confirm("Delete this staff member completely? This action cannot be undone.")) return;
+            try {
+                await db.ref(`hospitals/${hospitalId}/nurses/${uid}`).remove();
+                setToast({type: 'success', msg: 'Staff removed'});
+                setTimeout(()=>setToast(null), 2000);
+            } catch(e) { alert(e.message); }
         };
 
-        if (!data) return <div className="p-8 text-center text-slate-400">Syncing Hospital Data...</div>;
+        if (!data) return <div className="p-12 text-center text-slate-400 font-medium animate-pulse">Syncing Hospital Data...</div>;
 
-        const activeDevs   = data.active_devices ? Object.values(data.active_devices) : [];
-        const historyDevs  = data.history ? Object.values(data.history).sort((a,b)=>b.completedAt - a.completedAt) : [];
-        const transactions = data.transactions ? Object.values(data.transactions).sort((a,b)=>b.timestamp - a.timestamp) : [];
+        const activeDevs = data.active_devices ? Object.values(data.active_devices) : [];
+        const historyDevs = data.history ? Object.values(data.history).sort((a,b)=>b.completedAt - a.completedAt) : [];
+        const nurses = data.nurses ? Object.values(data.nurses) : [];
         
-        const startOfDay = new Date();
-        startOfDay.setHours(0,0,0,0);
-        const todayDischarges = historyDevs.filter(h => h.completedAt >= startOfDay.getTime());
+        const allDeviceIds = new Set([...activeDevs.map(d => d.deviceId), ...historyDevs.map(d => d.deviceId)]);
+        const totalUniqueDevices = allDeviceIds.size;
 
-        const nurseSet = new Set();
-        const nurses = [];
-        if (data.nurses) {
-            Object.values(data.nurses).forEach(n => { nurseSet.add(n.uid); nurses.push(n); });
-        } else {
-            [...activeDevs, ...historyDevs].forEach(d => {
-                if(d.nurseId && !nurseSet.has(d.nurseId)) {
-                    nurseSet.add(d.nurseId);
-                    nurses.push({ uid: d.nurseId, name: d.nurseName });
-                }
-            });
-        }
+        const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+        const todayDischarges = historyDevs.filter(h => h.completedAt >= startOfDay.getTime());
 
         const filterData = (list) => {
             if (!searchTerm) return list;
             const lower = searchTerm.toLowerCase();
-            return list.filter(item => 
+            return list.filter(item =>
                 (item.patientName?.toLowerCase().includes(lower)) ||
                 (item.deviceId?.toLowerCase().includes(lower)) ||
                 (item.nurseName?.toLowerCase().includes(lower)) ||
-                (item.name?.toLowerCase().includes(lower)) 
+                (item.room?.toLowerCase().includes(lower)) ||
+                (item.bed?.toLowerCase().includes(lower)) ||
+                (item.name?.toLowerCase().includes(lower)) ||
+                (item.email?.toLowerCase().includes(lower))
             );
         };
 
-        const filteredActive  = filterData(activeDevs);
-        const filteredHistory = filterData(historyDevs);
-        const filteredNurses  = filterData(nurses);
-
-        const getNurseData = (uid) => ({
-            active: activeDevs.filter(d => d.nurseId === uid),
-            history: historyDevs.filter(d => d.nurseId === uid)
-        });
+        const filteredActive = filterData(activeDevs);
+        const filteredHistory = filterHistoryByTime(filterData(historyDevs), filterPeriod);
+        const filteredNurses = filterData(nurses);
 
         return (
-            <div className="space-y-6">
+            <div className="space-y-6 fade-in">
                 {toast && <Toast {...toast} onClose={()=>setToast(null)} />}
                 
-                <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center">
-                    <i className="fas fa-search text-slate-400 ml-2"></i>
-                    <input 
-                        type="text" 
-                        placeholder="Global Search (Patient, Device ID, Nurse)..." 
-                        className="w-full p-2 outline-none text-sm text-slate-700 ml-2"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+                {isSuperView && <UsageChart historyData={historyDevs} />}
+
+                <div className="bg-white p-2.5 rounded-2xl shadow-sm border border-slate-200 flex items-center mb-6">
+                    <i className="fas fa-search text-slate-400 ml-3"></i>
+                    <input type="text" placeholder="Search Patients, Devices, Staff, Rooms..." className="w-full p-2 outline-none text-sm text-slate-700 ml-2 font-medium" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div onClick={() => setModalType('active_list')} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg transition-all active:scale-95 group glow-card">
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-blue-500">Active Patients</div>
-                        <div className="text-3xl font-bold text-blue-600 mt-1">{activeDevs.length}</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group glow-card">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center"><i className="fas fa-procedures"></i></div>
+                            <div className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest group-hover:text-blue-500 transition-colors">Active Patients</div>
+                        </div>
+                        <div className="text-4xl font-black text-slate-800 tracking-tight">{activeDevs.length}</div>
                     </div>
-                    <div onClick={() => setModalType('discharge_list')} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg transition-all active:scale-95 group glow-card">
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-emerald-500">Today's Discharges</div>
-                        <div className="text-3xl font-bold text-emerald-600 mt-1">{todayDischarges.length}</div>
+                    
+                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all group glow-card">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center"><i className="fas fa-clipboard-check"></i></div>
+                            <div className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest group-hover:text-emerald-500 transition-colors">Today's Discharges</div>
+                        </div>
+                        <div className="text-4xl font-black text-slate-800 tracking-tight">{todayDischarges.length}</div>
                     </div>
-                    <div className="bg-slate-900 p-5 rounded-2xl shadow-lg text-white relative overflow-hidden glow-card">
-                        <div className="absolute top-0 right-0 p-4 opacity-10"><i className="fas fa-wallet text-6xl"></i></div>
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Wallet Balance</div>
-                        <div className="text-3xl font-bold text-emerald-400 mt-1">{formatMoney(data.wallet)}</div>
-                        {!isSuperView && (
-                             <div className="flex gap-2 mt-3 relative z-10">
-                                <input type="number" value={addFunds} onChange={e=>setAddFunds(e.target.value)} placeholder="+ Amount" className="w-24 bg-white/10 border border-white/20 rounded px-2 py-1 text-xs text-white outline-none focus:bg-white/20 transition-all" />
-                                <button onClick={handleAddFunds} className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded transition-colors">Add</button>
-                             </div>
-                        )}
+
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-2xl shadow-xl text-white relative overflow-hidden glow-card">
+                        <div className="absolute -right-4 -top-4 opacity-10"><i className="fas fa-satellite-dish text-9xl"></i></div>
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="w-8 h-8 rounded-full bg-white/10 text-blue-300 flex items-center justify-center backdrop-blur-sm"><i className="fas fa-microchip"></i></div>
+                                <div className="text-[11px] font-extrabold text-blue-200 uppercase tracking-widest">Registered Devices</div>
+                            </div>
+                            <div className="text-4xl font-black text-white tracking-tight">{totalUniqueDevices}</div>
+                            {isSuperView && (
+                                <div className="mt-3 inline-block bg-white/10 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider text-blue-200 backdrop-blur-sm border border-white/10">
+                                    Est. Monthly: {formatMoney(totalUniqueDevices * MAINTENANCE_FEE_PER_DEVICE)}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
-                <div className="flex gap-6 border-b border-slate-200 overflow-x-auto">
-                    {['active', 'history', 'nurses', 'finances'].map(t => (
-                        <button key={t} onClick={()=>setTab(t)} className={`pb-2 text-sm font-bold capitalize transition-colors border-b-2 whitespace-nowrap ${tab===t ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                <div className="flex gap-8 border-b border-slate-200 mt-8 px-2 overflow-x-auto">
+                    {['active', 'history', 'nurses'].map(t => (
+                        <button key={t} onClick={()=>setTab(t)} className={`pb-3 text-sm font-extrabold uppercase tracking-wider transition-all border-b-2 whitespace-nowrap ${tab===t ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
                             {t}
                         </button>
                     ))}
                 </div>
 
-                <div className="min-h-[300px]">
+                <div className="min-h-[300px] pt-4">
                     {tab === 'active' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                             {filteredActive.map(d => <StatusCard key={d.deviceId} data={d} onComplete={handleDischarge} />)}
-                            {filteredActive.length === 0 && <div className="col-span-full py-12 text-center text-slate-400 text-sm">No matching active monitors.</div>}
+                            {filteredActive.length === 0 && <div className="col-span-full py-16 text-center text-slate-400 font-medium bg-white rounded-2xl border border-dashed border-slate-200">No active infusions right now.</div>}
                         </div>
                     )}
                     
                     {tab === 'history' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-80">
-                            {filteredHistory.slice(0, 50).map((d, i) => <StatusCard key={i} data={d} isHistory={true} />)}
+                        <div>
+                            <FilterTabs current={filterPeriod} onChange={setFilterPeriod} resultCount={filteredHistory.length} />
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 opacity-90">
+                                {filteredHistory.slice(0, 50).map((d, i) => <StatusCard key={i} data={d} isHistory={true} />)}
+                                {filteredHistory.length === 0 && <div className="col-span-full py-16 text-center text-slate-400 font-medium bg-white rounded-2xl border border-dashed border-slate-200">No history records found for this period.</div>}
+                            </div>
                         </div>
                     )}
 
                     {tab === 'nurses' && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {filteredNurses.map((n, i) => (
-                                <div key={i} onClick={() => { setSelectedNurseId(n.uid); setModalType('nurse_details'); }} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:bg-slate-50 flex items-center gap-3 glow-card">
-                                    <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
-                                        {n.name.charAt(0).toUpperCase()}
+                        <div>
+                            {!isSuperView && (
+                                <button onClick={() => setShowAddNurse(true)} className="mb-6 bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2">
+                                    <i className="fas fa-plus"></i> Add Staff Member
+                                </button>
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                                {filteredNurses.map((n, i) => (
+                                    <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 text-blue-700 flex items-center justify-center font-extrabold text-lg shadow-inner">
+                                                {n.name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <div className="font-extrabold text-slate-800">{n.name}</div>
+                                                <div className="text-xs font-medium text-slate-500 mt-0.5">{n.email}</div>
+                                                <div className="text-xs font-medium text-slate-400 mt-0.5">{n.phone}</div>
+                                            </div>
+                                        </div>
+                                        {!isSuperView && (
+                                            <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+                                                <button onClick={() => { setSelectedNurse(n); setShowEditNurse(true); }} className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-bold py-2 rounded-lg transition-colors">Edit</button>
+                                                <button onClick={() => handleDeleteNurse(n.uid)} className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold py-2 rounded-lg transition-colors">Delete</button>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div>
-                                        <div className="font-bold text-slate-800">{n.name}</div>
-                                        <div className="text-xs text-slate-400">View Profile</div>
-                                    </div>
-                                </div>
-                            ))}
-                            {filteredNurses.length === 0 && <div className="text-slate-400 col-span-full">No nurses found.</div>}
+                                ))}
+                                {filteredNurses.length === 0 && <div className="text-slate-400 col-span-full py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl">No staff registered.</div>}
+                            </div>
                         </div>
-                    )}
-
-                    {tab === 'finances' && (
-                         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500 font-bold"><tr><th className="p-4">Time</th><th className="p-4">Action</th><th className="p-4 text-right">Amt</th></tr></thead>
-                                <tbody>
-                                    {transactions.slice(0, 50).map((tx, i) => (
-                                        <tr key={i} className="border-b last:border-0 hover:bg-slate-50">
-                                            <td className="p-4 text-xs text-slate-500 font-mono">{new Date(tx.timestamp).toLocaleString()}</td>
-                                            <td className="p-4"><span className={`text-xs font-bold px-2 py-1 rounded ${tx.type==='deposit' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{tx.by || 'Sys'}</span></td>
-                                            <td className={`p-4 text-right font-bold ${tx.type==='deposit' ? 'text-emerald-600' : 'text-red-600'}`}>{tx.type==='deduction'?'-':'+'}{formatMoney(tx.amount)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                         </div>
                     )}
                 </div>
 
-                {/* Modals */}
-                {modalType === 'active_list' && (
-                    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-4xl h-[80vh] rounded-2xl flex flex-col overflow-hidden">
-                            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                                <h3 className="font-bold text-slate-800">Active Patients ({activeDevs.length})</h3>
-                                <button onClick={()=>setModalType(null)}><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="p-4 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50">
-                                {activeDevs.map(d => <StatusCard key={d.deviceId} data={d} onComplete={handleDischarge} />)}
-                                {activeDevs.length===0 && <p className="text-center text-slate-400 p-10">No active patients.</p>}
-                            </div>
-                        </div>
-                    </div>
-                )}
-                
-                {modalType === 'discharge_list' && (
-                    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-4xl h-[80vh] rounded-2xl flex flex-col overflow-hidden">
-                            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                                <h3 className="font-bold text-slate-800">Today's Discharges ({todayDischarges.length})</h3>
-                                <button onClick={()=>setModalType(null)}><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="p-4 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50">
-                                {todayDischarges.map((d,i) => <StatusCard key={i} data={d} isHistory={true} />)}
-                                {todayDischarges.length===0 && <p className="text-center text-slate-400 p-10">No discharges today.</p>}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {modalType === 'nurse_details' && selectedNurseId && (
-                    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-4xl h-[80vh] rounded-2xl flex flex-col overflow-hidden">
-                            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                                <h3 className="font-bold">Nurse Profile: {nurses.find(n=>n.uid===selectedNurseId)?.name}</h3>
-                                <button onClick={()=>setModalType(null)}><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="p-4 overflow-y-auto space-y-6">
-                                <div>
-                                    <h4 className="font-bold text-slate-500 mb-2">Currently Active</h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {getNurseData(selectedNurseId).active.map(d => <StatusCard key={d.deviceId} data={d} onComplete={handleDischarge} />)}
-                                    </div>
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-slate-500 mb-2">Full History</h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 opacity-80">
-                                        {getNurseData(selectedNurseId).history.map((d,i) => <StatusCard key={i} data={d} isHistory={true} />)}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                <button onClick={()=>setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center text-xl hover:scale-105 active:scale-90 transition-all z-50">
-                    <i className="fas fa-plus"></i>
-                </button>
-
-                <PatientFormModal 
-                    isOpen={showAdd} 
-                    onClose={()=>setShowAdd(false)} 
-                    hospitalId={hospitalId} 
-                    user={{ uid: auth.currentUser.uid, role: userRole, name: 'Admin' }} 
-                    currentBalance={data.wallet}
-                    onSuccess={() => {
-                        setToast({type: 'success', msg: 'Device Started'});
-                        setTimeout(()=>setToast(null), 2000);
-                    }}
-                />
+                <AddNurseModal isOpen={showAddNurse} onClose={()=>setShowAddNurse(false)} hospitalId={hospitalId} hospitalDomain={hospitalInfo.domain} onSuccess={() => { setToast({type: 'success', msg: 'Staff Added'}); setTimeout(()=>setToast(null), 2000); }} />
+                <EditNurseModal isOpen={showEditNurse} onClose={()=>setShowEditNurse(false)} hospitalId={hospitalId} currentNurse={selectedNurse} onSuccess={() => { setToast({type: 'success', msg: 'Staff Updated'}); setTimeout(()=>setToast(null), 2000); }} />
             </div>
         );
     };
 
     // ────────────────────────────────────────────────
-    //  NURSE VIEW – UPDATED TO SHOW ALL PATIENTS AND HISTORY, ADDED SUMMARY CARDS
+    // NURSE VIEW
     // ────────────────────────────────────────────────
     const NurseApp = ({ user, onLogout }) => {
         const { id: hid, name: hName } = getHospitalInfo(user.email);
@@ -583,171 +741,128 @@
         const [showAdd, setShowAdd] = useState(false);
         const [toast, setToast] = useState(null);
         const [tab, setTab] = useState('active');
-        const [searchTerm, setSearchTerm] = useState('');
+        const [filterPeriod, setFilterPeriod] = useState('max');
+        const [nurseName, setNurseName] = useState('');
 
         useEffect(() => {
             const hRef = db.ref(`hospitals/${hid}`);
+            hRef.child(`nurses/${user.uid}`).once('value').then(snap => { if (snap.exists()) setNurseName(snap.val().name); });
             
-            // Active – all patients
             hRef.child('active_devices').on('value', snap => {
-                const d = [];
-                snap.forEach(c => d.push(c.val()));
+                const d = []; 
+                const now = Date.now();
+                const oneDay = 24 * 60 * 60 * 1000;
+                
+                snap.forEach(c => { 
+                    const val = c.val();
+                    // Check Auto-Discharge locally as a safety net
+                    if (now - val.startTime >= oneDay) {
+                        hRef.child('history').push({...val, completedAt: now, autoDischarged: true});
+                        c.ref.remove();
+                    } else if (val.nurseId === user.uid) {
+                        d.push(val); 
+                    }
+                });
                 setDevices(d);
             });
-            
-            // History – all patients
             hRef.child('history').on('value', snap => {
-                const h = [];
-                snap.forEach(c => h.push(c.val()));
+                const h = []; snap.forEach(c => { if (c.val().nurseId === user.uid) h.push(c.val()); });
                 setHistory(h.sort((a,b) => b.completedAt - a.completedAt));
             });
-
-            return () => {
-                hRef.child('active_devices').off();
-                hRef.child('history').off();
-            };
-        }, [hid]);
+            return () => { hRef.child('active_devices').off(); hRef.child('history').off(); };
+        }, [hid, user.uid]);
 
         const handleComplete = (did) => {
             const activeRef = db.ref(`hospitals/${hid}/active_devices/${did}`);
             activeRef.once('value', snap => {
                 if (snap.exists()) {
-                    const record = snap.val();
-                    db.ref(`hospitals/${hid}/history`).push({
-                        ...record,
-                        completedAt: Date.now(),
-                        nurseId: record.nurseId,     
-                        nurseName: record.nurseName
+                    db.ref(`hospitals/${hid}/history`).push({ ...snap.val(), completedAt: Date.now() }, (err) => {
+                        if (!err) activeRef.remove();
                     });
-                    activeRef.remove();
                 }
             });
         };
 
-        const startOfDay = new Date();
-        startOfDay.setHours(0,0,0,0);
-        const todayDischarges = history.filter(h => h.completedAt >= startOfDay.getTime());
-
-        const filterData = (list) => {
-            if (!searchTerm) return list;
-            const lower = searchTerm.toLowerCase();
-            return list.filter(item => 
-                (item.patientName?.toLowerCase().includes(lower)) ||
-                (item.deviceId?.toLowerCase().includes(lower)) ||
-                (item.nurseName?.toLowerCase().includes(lower))
-            );
-        };
-
-        const filteredActive = filterData(devices);
-        const filteredHistory = filterData(history);
+        const filteredHistory = filterHistoryByTime(history, filterPeriod);
 
         return (
-            <div className="min-h-screen bg-slate-50 pb-20">
+            <div className="min-h-screen pb-20 fade-in">
                 {toast && <Toast {...toast} onClose={()=>setToast(null)} />}
-                <AppHeader title={hName} subtitle={`Nurse: ${user.email.split('@')[0].toUpperCase()}`} onLogout={onLogout} />
-
-                <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-8">
-                    
-                    <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center">
-                        <i className="fas fa-search text-slate-400 ml-2"></i>
-                        <input 
-                            type="text" 
-                            placeholder="Global Search (Patient, Device ID, Nurse)..." 
-                            className="w-full p-2 outline-none text-sm text-slate-700 ml-2"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg transition-all active:scale-95 group glow-card">
-                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-blue-500">Active Patients</div>
-                            <div className="text-3xl font-bold text-blue-600 mt-1">{devices.length}</div>
-                        </div>
-                        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-md hover:shadow-lg transition-all active:scale-95 group glow-card">
-                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider group-hover:text-emerald-500">Today's Discharges</div>
-                            <div className="text-3xl font-bold text-emerald-600 mt-1">{todayDischarges.length}</div>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-4 border-b border-slate-200">
-                        <button onClick={()=>setTab('active')} className={`pb-2 text-sm font-bold capitalize transition-colors border-b-2 ${tab==='active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>Active</button>
-                        <button onClick={()=>setTab('history')} className={`pb-2 text-sm font-bold capitalize transition-colors border-b-2 ${tab==='history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}>History</button>
+                <AppHeader title={hName} subtitle={`Staff: ${nurseName || user.email.split('@')[0]}`} onLogout={onLogout} />
+                
+                <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6 mt-4">
+                    <div className="flex gap-6 border-b border-slate-200">
+                        <button onClick={()=>setTab('active')} className={`pb-3 text-sm font-extrabold uppercase tracking-wider transition-all border-b-2 ${tab==='active' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-400'}`}>My Patients ({devices.length})</button>
+                        <button onClick={()=>setTab('history')} className={`pb-3 text-sm font-extrabold uppercase tracking-wider transition-all border-b-2 ${tab==='history' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-400'}`}>History</button>
                     </div>
 
                     {tab === 'active' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {filteredActive.map(d => <StatusCard key={d.deviceId} data={d} onComplete={handleComplete} />)}
-                            {filteredActive.length === 0 && (
-                                <div className="col-span-full py-12 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400">
-                                    <i className="fas fa-user-nurse text-4xl mb-2 opacity-50"></i>
-                                    <p>No active patients. Tap + to start.</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            {devices.map(d => <StatusCard key={d.deviceId} data={d} onComplete={handleComplete} />)}
+                            {devices.length === 0 && (
+                                <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-300 rounded-3xl bg-white/50 text-slate-400">
+                                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4"><i className="fas fa-bed text-2xl text-slate-300"></i></div>
+                                    <p className="font-bold text-lg text-slate-500">No active infusions</p>
+                                    <p className="text-sm mt-1">Tap the + button to assign a device.</p>
                                 </div>
                             )}
                         </div>
                     )}
-
+                    
                     {tab === 'history' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 opacity-75">
-                            {filteredHistory.slice(0, 50).map((d,i) => (
-                                <StatusCard key={i} data={d} isHistory={true} />
-                            ))}
-                            {filteredHistory.length === 0 && (
-                                <p className="text-slate-400 text-sm col-span-full text-center py-8">
-                                    No records found.
-                                </p>
-                            )}
+                        <div>
+                            <FilterTabs current={filterPeriod} onChange={setFilterPeriod} resultCount={filteredHistory.length} />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 opacity-80">
+                                {filteredHistory.slice(0, 50).map((d,i) => <StatusCard key={i} data={d} isHistory={true} />)}
+                                {filteredHistory.length === 0 && <p className="col-span-full text-center text-slate-400 py-10">No records found for this period.</p>}
+                            </div>
                         </div>
                     )}
-
                 </div>
 
-                <button onClick={()=>setShowAdd(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 text-white rounded-full shadow-2xl flex items-center justify-center text-xl hover:scale-105 active:scale-90 transition-all z-50">
+                <button onClick={()=>setShowAdd(true)} className="fixed bottom-8 right-8 w-16 h-16 bg-blue-600 text-white rounded-2xl shadow-2xl shadow-blue-500/40 flex items-center justify-center text-2xl hover:-translate-y-1 active:scale-90 transition-all z-50">
                     <i className="fas fa-plus"></i>
                 </button>
 
-                <PatientFormModal 
-                    isOpen={showAdd} 
-                    onClose={()=>setShowAdd(false)} 
-                    hospitalId={hid} 
-                    user={{ uid: user.uid, role: 'nurse', name: user.email.split('@')[0] }} 
-                    currentBalance={null} 
-                    onSuccess={() => {
-                        setToast({type: 'success', msg: 'Infusion Started'});
-                        setTimeout(()=>setToast(null), 2000);
-                    }}
-                />
+                <PatientFormModal isOpen={showAdd} onClose={()=>setShowAdd(false)} hospitalId={hid} user={{ uid: user.uid, role: 'nurse', name: nurseName || user.email.split('@')[0] }} onSuccess={() => { setToast({type: 'success', msg: 'Infusion Started'}); setTimeout(()=>setToast(null), 2000); }} />
             </div>
         );
     };
 
     // ────────────────────────────────────────────────
-    //  SUPER ADMIN + LOGIN + MAIN APP
+    // SUPER ADMIN VIEW
     // ────────────────────────────────────────────────
-
     const SuperDashboard = ({ onLogout }) => {
         const [hospitals, setHospitals] = useState({});
-        const [viewId, setViewId] = useState(null); 
-        const [superModal, setSuperModal] = useState(null); 
+        const [viewId, setViewId] = useState(null);
 
-        useEffect(() => {
-            db.ref('hospitals').on('value', snap => setHospitals(snap.val() || {}));
-        }, []);
+        useEffect(() => { db.ref('hospitals').on('value', snap => setHospitals(snap.val() || {})); }, []);
 
-        const totalLiquidity = Object.values(hospitals).reduce((acc, curr) => acc + (curr.wallet || 0), 0);
-        const totalActive = Object.values(hospitals).reduce((acc, curr) => acc + (curr.active_devices ? Object.keys(curr.active_devices).length : 0), 0);
-        const totalNurses = Object.values(hospitals).reduce((acc, curr) => acc + (curr.nurses ? Object.keys(curr.nurses).length : 0), 0);
+        const stats = useMemo(() => {
+            let active = 0, nurses = 0, devices = new Set();
+            Object.values(hospitals).forEach(h => {
+                if(h.active_devices) {
+                    active += Object.keys(h.active_devices).length;
+                    Object.values(h.active_devices).forEach(d => devices.add(d.deviceId));
+                }
+                if(h.history) {
+                    Object.values(h.history).forEach(d => devices.add(d.deviceId));
+                }
+                if(h.nurses) nurses += Object.keys(h.nurses).length;
+            });
+            return { active, nurses, devices: devices.size };
+        }, [hospitals]);
 
         if (viewId) {
             return (
-                <div className="min-h-screen bg-slate-50">
-                    <header className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shadow-md sticky top-0 z-50">
-                        <button onClick={()=>setViewId(null)} className="flex items-center gap-2 hover:text-blue-300 transition-colors">
-                            <i className="fas fa-arrow-left"></i> <span className="font-bold">Back to Network</span>
+                <div className="min-h-screen pb-10">
+                    <header className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shadow-lg sticky top-0 z-50 backdrop-blur-md bg-slate-900/90">
+                        <button onClick={()=>setViewId(null)} className="flex items-center gap-3 hover:text-blue-400 transition-colors bg-slate-800 px-4 py-2 rounded-xl font-bold text-sm">
+                            <i className="fas fa-arrow-left"></i> <span>Network Grid</span>
                         </button>
-                        <div className="font-bold">{hospitals[viewId]?.name}</div>
+                        <div className="font-extrabold tracking-tight">{hospitals[viewId]?.name}</div>
                     </header>
-                    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+                    <div className="p-4 md:p-8 max-w-7xl mx-auto">
                         <HospitalDashboard hospitalId={viewId} userRole="admin" isSuperView={true} />
                     </div>
                 </div>
@@ -755,95 +870,81 @@
         }
 
         return (
-            <div className="min-h-screen bg-slate-50">
-                <AppHeader title="Super Admin" subtitle="Global Network Overview" onLogout={onLogout} />
+            <div className="min-h-screen pb-10 fade-in">
+                <AppHeader title="Super Admin" subtitle="Global Network Control" onLogout={onLogout} />
                 
-                <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-8">
-                    <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-8 opacity-5"><i className="fas fa-globe-asia text-9xl"></i></div>
+                <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+                    <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 rounded-[2rem] p-8 md:p-10 text-white shadow-2xl relative overflow-hidden border border-slate-700">
+                        <div className="absolute right-0 top-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3"></div>
                         <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-8">
-                            <div onClick={()=>setSuperModal('liquidity')} className="cursor-pointer hover:opacity-80 transition-opacity">
-                                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Liquidity</div>
-                                <div className="text-4xl font-bold text-emerald-400">{formatMoney(totalLiquidity)}</div>
+                            <div>
+                                <div className="text-[10px] font-extrabold text-blue-300 uppercase tracking-widest mb-2 flex items-center gap-2"><i className="fas fa-microchip"></i> Network Devices</div>
+                                <div className="text-5xl font-black text-white">{stats.devices}</div>
                             </div>
-                            <div onClick={()=>setSuperModal('patients')} className="cursor-pointer hover:opacity-80 transition-opacity">
-                                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Live Patients</div>
-                                <div className="text-4xl font-bold text-blue-400">{totalActive}</div>
+                            <div>
+                                <div className="text-[10px] font-extrabold text-emerald-300 uppercase tracking-widest mb-2 flex items-center gap-2"><i className="fas fa-file-invoice-dollar"></i> Est. Mo. Revenue</div>
+                                <div className="text-5xl font-black text-emerald-400">{formatMoney(stats.devices * MAINTENANCE_FEE_PER_DEVICE)}</div>
                             </div>
-                             <div onClick={()=>setSuperModal('nurses')} className="cursor-pointer hover:opacity-80 transition-opacity">
-                                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Nurses</div>
-                                <div className="text-4xl font-bold text-purple-400">{totalNurses}</div>
+                            <div>
+                                <div className="text-[10px] font-extrabold text-purple-300 uppercase tracking-widest mb-2 flex items-center gap-2"><i className="fas fa-hospital"></i> Facilities</div>
+                                <div className="text-5xl font-black text-white">{Object.keys(hospitals).length}</div>
                             </div>
-                             <div>
-                                <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Hospitals</div>
-                                <div className="text-4xl font-bold text-white">{Object.keys(hospitals).length}</div>
+                            <div>
+                                <div className="text-[10px] font-extrabold text-rose-300 uppercase tracking-widest mb-2 flex items-center gap-2"><i className="fas fa-procedures"></i> Live Infusions</div>
+                                <div className="text-5xl font-black text-white">{stats.active}</div>
                             </div>
                         </div>
                     </div>
 
                     <div>
-                        <h3 className="font-bold text-slate-700 mb-4 px-2">Connected Hospitals</h3>
+                        <h3 className="font-extrabold text-slate-800 text-xl mb-6 tracking-tight">Partner Hospitals</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {Object.entries(hospitals).map(([hid, h]) => (
-                                <div key={hid} onClick={()=>setViewId(hid)} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all group">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                            <i className="fas fa-hospital"></i>
+                            {Object.entries(hospitals).map(([hid, h]) => {
+                                const hDevs = new Set();
+                                if(h.active_devices) Object.values(h.active_devices).forEach(d => hDevs.add(d.deviceId));
+                                if(h.history) Object.values(h.history).forEach(d => hDevs.add(d.deviceId));
+                                
+                                return (
+                                    <div key={hid} onClick={()=>setViewId(hid)} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 cursor-pointer hover:shadow-xl hover:-translate-y-1.5 transition-all group relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -z-0 group-hover:scale-110 transition-transform"></div>
+                                        <div className="relative z-10">
+                                            <div className="w-14 h-14 bg-white shadow-md border border-slate-100 text-blue-600 rounded-2xl flex items-center justify-center text-2xl mb-5 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                                <i className="fas fa-hospital"></i>
+                                            </div>
+                                            <h4 className="font-extrabold text-xl text-slate-800 mb-1 tracking-tight">{h.name}</h4>
+                                            <div className="text-xs font-bold text-slate-400 mb-5 flex items-center gap-1.5"><i className="fas fa-map-marker-alt"></i> {h.location}</div>
+                                            
+                                            <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                                                <div className="text-center">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Devices</div>
+                                                    <div className="font-black text-slate-700">{hDevs.size}</div>
+                                                </div>
+                                                <div className="w-px h-6 bg-slate-200"></div>
+                                                <div className="text-center">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active</div>
+                                                    <div className="font-black text-blue-600">{h.active_devices ? Object.keys(h.active_devices).length : 0}</div>
+                                                </div>
+                                                <div className="w-px h-6 bg-slate-200"></div>
+                                                <div className="text-center">
+                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Staff</div>
+                                                    <div className="font-black text-slate-700">{h.nurses ? Object.keys(h.nurses).length : 0}</div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold">{formatMoney(h.wallet)}</div>
                                     </div>
-                                    <h4 className="font-bold text-lg text-slate-800">{h.name}</h4>
-                                    <div className="text-xs text-slate-400 mb-4">{h.location} • ID: {hid}</div>
-                                    <div className="flex gap-2 text-xs font-bold text-slate-600">
-                                        <span className="bg-slate-50 px-2 py-1 rounded"><i className="fas fa-procedures mr-1"></i> {h.active_devices ? Object.keys(h.active_devices).length : 0}</span>
-                                        <span className="bg-slate-50 px-2 py-1 rounded"><i className="fas fa-user-nurse mr-1"></i> {h.nurses ? Object.keys(h.nurses).length : 0}</span>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
-
-                {superModal && (
-                    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-2xl max-h-[80vh] rounded-2xl flex flex-col overflow-hidden">
-                            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                                <h3 className="font-bold capitalize">{superModal.replace('_', ' ')} Overview</h3>
-                                <button onClick={()=>setSuperModal(null)}><i className="fas fa-times"></i></button>
-                            </div>
-                            <div className="p-4 overflow-y-auto bg-slate-50">
-                                <table className="w-full text-sm text-left bg-white rounded-xl shadow-sm overflow-hidden">
-                                    <thead className="bg-slate-100 font-bold">
-                                        <tr>
-                                            <th className="p-3">Hospital</th>
-                                            <th className="p-3 text-right">
-                                                {superModal === 'liquidity' ? 'Wallet' : (superModal === 'patients' ? 'Active' : 'Nurses')}
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {Object.entries(hospitals).map(([hid, h]) => (
-                                            <tr key={hid} className="border-b last:border-0">
-                                                <td className="p-3 font-medium">{h.name}</td>
-                                                <td className="p-3 text-right font-bold">
-                                                    {superModal === 'liquidity' && formatMoney(h.wallet)}
-                                                    {superModal === 'patients' && (h.active_devices ? Object.keys(h.active_devices).length : 0)}
-                                                    {superModal === 'nurses' && (h.nurses ? Object.keys(h.nurses).length : 0)}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
         );
     };
 
-    const LoginScreen = ({ onLogin }) => {
-        const [isReg, setIsReg] = useState(false);
+    // ────────────────────────────────────────────────
+    // AUTH ROUTING
+    // ────────────────────────────────────────────────
+    const LoginScreen = () => {
         const [email, setEmail] = useState('');
         const [pass, setPass] = useState('');
         const [loading, setLoading] = useState(false);
@@ -851,69 +952,36 @@
         const handleSubmit = async (e) => {
             e.preventDefault();
             setLoading(true);
-            try {
-                if (isReg) {
-                    if (email.startsWith('admin@')) {
-                        throw new Error("Admin accounts must be created by the System Owner.");
-                    }
-                    if (!email.includes('.') || email.split('@')[1].split('.').length < 2) {
-                        throw new Error("Format: name@hospital.location");
-                    }
-                    const u = await auth.createUserWithEmailAndPassword(email, pass);
-                    
-                    const info = getHospitalInfo(email);
-                    const nurseRef = db.ref(`hospitals/${info.id}/nurses/${u.user.uid}`);
-                    await nurseRef.set({
-                        name: email.split('@')[0],
-                        email: email,
-                        uid: u.user.uid,
-                        joined: Date.now()
-                    });
-
-                } else {
-                    await auth.signInWithEmailAndPassword(email, pass);
-                }
-            } catch (err) {
-                alert(err.message);
-            } finally {
-                setLoading(false);
-            }
+            try { await auth.signInWithEmailAndPassword(email, pass); } 
+            catch (err) { alert(err.message); setLoading(false); }
         };
 
         return (
-            <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50 relative overflow-hidden">
-                <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-200/30 rounded-full blur-3xl"></div>
-                <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-200/30 rounded-full blur-3xl"></div>
-
-                <div className="bg-white/80 backdrop-blur-xl w-full max-w-md p-8 rounded-3xl shadow-2xl border border-white z-10 fade-in">
+            <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden fade-in">
+                <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-400/20 rounded-full blur-[100px] pointer-events-none"></div>
+                <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-indigo-400/20 rounded-full blur-[100px] pointer-events-none"></div>
+                
+                <div className="glass-panel w-full max-w-md p-10 rounded-[2.5rem] shadow-2xl relative z-10">
                     <div className="text-center mb-10">
-                        <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-blue-300 mb-4">
-                            <i className="fas fa-heartbeat text-3xl text-white"></i>
+                        <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl shadow-blue-500/30 mb-6 transform -rotate-3 hover:rotate-0 transition-all">
+                            <i className="fas fa-heartbeat text-4xl text-white"></i>
                         </div>
-                        <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">SalineGuard</h1>
-                        <p className="text-slate-500 font-medium">Enterprise Network</p>
+                        <h1 className="text-3xl font-black text-slate-800 tracking-tight">SalineGuard</h1>
+                        <p className="text-sm font-bold tracking-widest text-blue-600 uppercase mt-2">Enterprise Access</p>
                     </div>
-
                     <form onSubmit={handleSubmit} className="space-y-5">
-                        <div className="space-y-1">
-                            <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Secure ID</label>
-                            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder={isReg ? "name@hospital.location" : "Secure Email"} className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 outline-none focus:border-blue-500 transition-colors font-medium text-slate-700" required />
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] uppercase tracking-widest font-extrabold text-slate-500 ml-2">Secure ID</label>
+                            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="username@hospital.branch" className="w-full p-4 bg-white/80 rounded-2xl border border-white focus:border-blue-400 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium text-slate-800 shadow-sm" required />
                         </div>
-                        <div className="space-y-1">
-                            <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Password</label>
-                            <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" className="w-full p-4 bg-slate-50 rounded-xl border border-slate-200 outline-none focus:border-blue-500 transition-colors font-medium text-slate-700" required />
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] uppercase tracking-widest font-extrabold text-slate-500 ml-2">Password</label>
+                            <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" className="w-full p-4 bg-white/80 rounded-2xl border border-white focus:border-blue-400 focus:ring-4 focus:ring-blue-100 outline-none transition-all font-medium text-slate-800 shadow-sm" required />
                         </div>
-                        
-                        <button disabled={loading} className="w-full bg-slate-900 hover:bg-black text-white py-4 rounded-xl font-bold shadow-xl shadow-slate-200 active:scale-95 transition-all">
-                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : (isReg ? 'Register Nurse ID' : 'Authenticate')}
+                        <button disabled={loading} className="w-full bg-slate-900 hover:bg-black text-white py-4 mt-2 rounded-2xl font-extrabold shadow-xl shadow-slate-900/20 active:scale-[0.98] transition-all flex justify-center items-center">
+                            {loading ? <i className="fas fa-circle-notch fa-spin"></i> : 'Authenticate'}
                         </button>
                     </form>
-
-                    <div className="mt-8 text-center">
-                        <button onClick={()=>setIsReg(!isReg)} className="text-xs font-bold text-slate-400 hover:text-blue-600 transition-colors">
-                            {isReg ? "Have an ID? Login" : "New Nurse? Register ID"}
-                        </button>
-                    </div>
                 </div>
             </div>
         );
@@ -924,27 +992,25 @@
         const [loading, setLoading] = useState(true);
 
         useEffect(() => {
-            const unsub = auth.onAuthStateChanged((u) => {
-                setUser(u);
-                if(loading) setTimeout(() => setLoading(false), 1200);
-            });
+            const unsub = auth.onAuthStateChanged((u) => { setUser(u); setLoading(false); });
             return () => unsub();
         }, []);
 
         if (loading) return <LoadingScreen />;
         if (!user) return <LoginScreen />;
-
-        const info = getHospitalInfo(user.email);
         
+        const info = getHospitalInfo(user.email);
         if (info.id === 'super_admin') return <SuperDashboard onLogout={()=>auth.signOut()} />;
+        
         if (user.email.startsWith('admin@')) return (
-            <div className="min-h-screen bg-slate-50">
+            <div className="min-h-screen pb-10">
                 <AppHeader title={info.name} subtitle="Hospital Administration" onLogout={()=>auth.signOut()} />
-                <div className="p-4 md:p-6 max-w-7xl mx-auto">
+                <div className="p-4 md:p-8 max-w-7xl mx-auto">
                     <HospitalDashboard hospitalId={info.id} userRole="admin" />
                 </div>
             </div>
         );
+
         return <NurseApp user={user} onLogout={()=>auth.signOut()} />;
     };
 
