@@ -79,7 +79,7 @@
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
     const db = firebase.database();
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
 
     // --- Helpers ---
     const formatMoney = (amt) => "₹" + (amt || 0).toLocaleString('en-IN');
@@ -106,11 +106,23 @@
         return { id: 'unknown', name: 'Unknown', loc: '', domain: '' };
     };
 
+    // FIXED: Strict calendar sorting for Day/Week/Month
     const filterHistoryByTime = (histList, period) => {
         if (period === 'max') return histList;
-        const now = Date.now();
-        const periods = { day: 86400000, week: 7 * 86400000, month: 30 * 86400000 };
-        return histList.filter(h => (now - (h.completedAt || h.startTime)) <= periods[period]);
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+        return histList.filter(h => {
+            const itemTime = h.completedAt || h.startTime;
+            if (period === 'day') {
+                return itemTime >= todayStart; // Only items from midnight today
+            } else if (period === 'week') {
+                return (now.getTime() - itemTime) <= (7 * 86400000);
+            } else if (period === 'month') {
+                return (now.getTime() - itemTime) <= (30 * 86400000);
+            }
+            return true;
+        });
     };
 
     // --- Components ---
@@ -186,9 +198,23 @@
     );
 
     const StatusCard = ({ data, onComplete, isHistory = false }) => {
-        const perc = data.perc || 0;
+        const perc = data.perc !== undefined ? data.perc : 100;
         const isCrit = perc <= 10 && !isHistory;
         const displayName = data.patientName || `Room ${data.room} - Bed ${data.bed}`;
+        
+        // FIXED: Now reads the highly accurate time calculated directly from the ESP32!
+        let timeString = 'Done';
+        if (!isHistory) {
+            if (data.minsLeft !== undefined) {
+                // If ESP is sending data, format it nicely
+                timeString = data.secsLeft !== undefined 
+                    ? `${data.minsLeft}m ${data.secsLeft}s left` 
+                    : `${data.minsLeft}m left`;
+            } else {
+                // Fallback math if ESP hasn't synced time yet
+                timeString = `${Math.max(0, Math.round((perc / 100) * 60))}m left`;
+            }
+        }
 
         return (
             <div className={`relative bg-white rounded-2xl p-5 border transition-all duration-300 shadow-sm flex flex-col justify-between ${isCrit ? 'border-red-400 critical-alert' : 'border-slate-200 hover:shadow-md'}`}>
@@ -209,7 +235,7 @@
                     <div className="mb-4">
                         <div className="flex justify-between text-xs font-bold mb-2">
                             <span className={perc <= 10 && !isHistory ? 'text-red-600 animate-pulse' : 'text-blue-600'}>{perc}% Infused</span>
-                            <span className="text-slate-400 font-mono">{isHistory ? 'Done' : `${data.minsLeft || 0}m left`}</span>
+                            <span className="text-slate-400 font-mono tracking-tight">{timeString}</span>
                         </div>
                         <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
                             <div className={`h-full rounded-full transition-all duration-1000 ${isHistory ? 'bg-emerald-500' : (perc<=10 ? 'bg-red-500' : 'bg-gradient-to-r from-blue-500 to-indigo-500')}`} style={{width: `${perc}%`}}></div>
@@ -243,6 +269,7 @@
         );
     };
 
+    // FIXED: Using clean 'bg-black/60 backdrop-blur-md' to remove weird white modal borders
     const PatientFormModal = ({ isOpen, onClose, hospitalId, user, onSuccess }) => {
         const [form, setForm] = useState({ id: '', name: '', room: '', bed: '' });
         const [loading, setLoading] = useState(false);
@@ -266,7 +293,7 @@
 
                 await hRef.child(`active_devices/${did}`).set({
                     deviceId: did, patientName: form.name.trim() || '', room: form.room, bed: form.bed,
-                    nurseId: user.uid, nurseName: user.name || 'Staff', startTime: Date.now(), perc: 100, minsLeft: 60
+                    nurseId: user.uid, nurseName: user.name || 'Staff', startTime: Date.now(), perc: 100
                 });
 
                 setForm({ id: '', name: '', room: '', bed: '' });
@@ -277,8 +304,8 @@
 
         if(!isOpen) return null;
         return (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl relative overflow-hidden border border-slate-100">
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 fade-in">
+                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl shadow-black/50 relative overflow-hidden border border-slate-200">
                     <div className="flex justify-between items-center mb-6">
                         <div><h3 className="font-extrabold text-slate-800 text-xl">New Infusion</h3><p className="text-xs font-medium text-slate-400 mt-1">Connect device to patient bed</p></div>
                         <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors flex items-center justify-center"><i className="fas fa-times"></i></button>
@@ -334,8 +361,8 @@
 
         if(!isOpen || !currentNurse) return null;
         return (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl relative overflow-hidden border border-slate-100">
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 fade-in">
+                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl shadow-black/50 relative overflow-hidden border border-slate-200">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="font-extrabold text-slate-800 text-lg">Edit Staff Details</h3>
                         <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:bg-slate-200 flex items-center justify-center"><i className="fas fa-times"></i></button>
@@ -388,8 +415,8 @@
 
         if (!isOpen) return null;
         return (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in">
-                <div className="bg-white w-full max-w-sm rounded-3xl p-7 shadow-2xl relative overflow-hidden border border-slate-100">
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-xl z-50 flex items-center justify-center p-4 fade-in">
+                <div className="w-full max-w-sm rounded-3xl p-7 shadow-2xl shadow-black/40 relative overflow-hidden border border-white/30 bg-white/70 backdrop-blur-xl">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="font-extrabold text-slate-800 text-lg">Register Staff</h3>
                         <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:bg-slate-200 flex items-center justify-center"><i className="fas fa-times"></i></button>
@@ -412,8 +439,8 @@
     const SuccessCredentialsModal = ({ isOpen, creds, onClose }) => {
         if (!isOpen || !creds) return null;
         return (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 fade-in">
-                <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl relative overflow-hidden border border-slate-100">
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[9999] flex items-center justify-center p-4 fade-in">
+                <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl shadow-black/50 relative overflow-hidden border border-slate-200">
                     <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-8 text-center">
                         <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4"><i className="fas fa-check text-3xl"></i></div>
                         <h3 className="text-2xl font-extrabold tracking-tight">Account Created!</h3>
@@ -437,7 +464,7 @@
 
     // --- Analytics Chart Component (Super Admin) ---
     const UsageChart = ({ historyData }) => {
-        const [range, setRange] = useState('monthly'); // weekly, monthly, yearly, max
+        const [range, setRange] = useState('monthly'); 
 
         const chartData = useMemo(() => {
             const dataMap = {};
@@ -541,7 +568,7 @@
         const [selectedNurse, setSelectedNurse] = useState(null);
         const [toast, setToast] = useState(null);
         const [searchTerm, setSearchTerm] = useState('');
-        const [filterPeriod, setFilterPeriod] = useState('max');
+        const [filterPeriod, setFilterPeriod] = useState('day');
         const hospitalInfo = getHospitalInfo(auth.currentUser.email);
         
         useEffect(() => {
@@ -549,12 +576,12 @@
             ref.on('value', snap => {
                 const val = snap.val() || {};
                 
-                // --- 24-HOUR AUTO DISCHARGE LOGIC ---
+                // FIXED: 6-HOUR AUTO DISCHARGE LOGIC
                 if (val && val.active_devices) {
                     const now = Date.now();
-                    const oneDay = 24 * 60 * 60 * 1000;
+                    const sixHours = 6 * 60 * 60 * 1000;
                     Object.values(val.active_devices).forEach(dev => {
-                        if (now - dev.startTime >= oneDay) {
+                        if (now - dev.startTime >= sixHours) {
                             db.ref(`hospitals/${hospitalId}/history`).push({
                                 ...dev,
                                 completedAt: now,
@@ -599,8 +626,9 @@
         const allDeviceIds = new Set([...activeDevs.map(d => d.deviceId), ...historyDevs.map(d => d.deviceId)]);
         const totalUniqueDevices = allDeviceIds.size;
 
-        const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
-        const todayDischarges = historyDevs.filter(h => h.completedAt >= startOfDay.getTime());
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const todayDischarges = historyDevs.filter(h => h.completedAt >= startOfDay);
 
         const filterData = (list) => {
             if (!searchTerm) return list;
@@ -732,7 +760,7 @@
     };
 
     // ────────────────────────────────────────────────
-    // NURSE VIEW
+    // NURSE VIEW (WITH NOTIFICATIONS ADDED)
     // ────────────────────────────────────────────────
     const NurseApp = ({ user, onLogout }) => {
         const { id: hid, name: hName } = getHospitalInfo(user.email);
@@ -741,8 +769,18 @@
         const [showAdd, setShowAdd] = useState(false);
         const [toast, setToast] = useState(null);
         const [tab, setTab] = useState('active');
-        const [filterPeriod, setFilterPeriod] = useState('max');
+        const [filterPeriod, setFilterPeriod] = useState('day');
         const [nurseName, setNurseName] = useState('');
+        
+        // Track previous percentages to trigger notifications only when thresholds are crossed
+        const prevPercs = useRef({});
+
+        // Ask for Native Browser Notification Permissions
+        useEffect(() => {
+            if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+                Notification.requestPermission();
+            }
+        }, []);
 
         useEffect(() => {
             const hRef = db.ref(`hospitals/${hid}`);
@@ -751,20 +789,54 @@
             hRef.child('active_devices').on('value', snap => {
                 const d = []; 
                 const now = Date.now();
-                const oneDay = 24 * 60 * 60 * 1000;
+                const sixHours = 6 * 60 * 60 * 1000; // FIXED: 6-Hour Auto Discharge limit
                 
                 snap.forEach(c => { 
                     const val = c.val();
-                    // Check Auto-Discharge locally as a safety net
-                    if (now - val.startTime >= oneDay) {
+                    const did = val.deviceId;
+                    
+                    // Auto-Discharge Safety Net
+                    if (now - val.startTime >= sixHours) {
                         hRef.child('history').push({...val, completedAt: now, autoDischarged: true});
                         c.ref.remove();
-                    } else if (val.nurseId === user.uid) {
+                        return; 
+                    } 
+                    
+                    if (val.nurseId === user.uid) {
                         d.push(val); 
+                        
+                        // --- LIVE NOTIFICATION LOGIC ---
+                        const currentPerc = val.perc !== undefined ? val.perc : 100;
+                        
+                        // Check if we just crossed a notification threshold
+                        if (prevPercs.current[did] !== undefined) {
+                            const prev = prevPercs.current[did];
+                            const thresholds = [75, 50, 25, 15, 10, 5, 0];
+                            
+                            for (let t of thresholds) {
+                                if (prev > t && currentPerc <= t) {
+                                    // Trigger Web Push Notification
+                                    if ("Notification" in window && Notification.permission === "granted") {
+                                        const roomName = val.patientName || `Room ${val.room}`;
+                                        const mins = val.minsLeft || 0;
+                                        const secs = val.secsLeft || 0;
+                                        
+                                        new Notification(`Saline Alert: ${roomName}`, {
+                                            body: `Fluid dropped to ${currentPerc}%. Estimated time left: ${mins}m ${secs}s.`,
+                                            icon: "https://cdn-icons-png.flaticon.com/512/3004/3004451.png"
+                                        });
+                                    }
+                                    break; // Only fire the highest crossed threshold
+                                }
+                            }
+                        }
+                        // Update memory for next render loop
+                        prevPercs.current[did] = currentPerc;
                     }
                 });
                 setDevices(d);
             });
+            
             hRef.child('history').on('value', snap => {
                 const h = []; snap.forEach(c => { if (c.val().nurseId === user.uid) h.push(c.val()); });
                 setHistory(h.sort((a,b) => b.completedAt - a.completedAt));
